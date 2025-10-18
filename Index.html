@@ -16,9 +16,7 @@
   #customRow { display:none; gap:8px; justify-content:center; }
   #customInput { width: min(680px, 90vw); }
   .grid { display:none; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:10px; margin-top:14px; }
-  .chip {
-    display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; border:1px solid #ddd; background:white; cursor:pointer; user-select:none;
-  }
+  .chip { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; border:1px solid #ddd; background:white; cursor:pointer; user-select:none; }
   .dot { width:18px; height:18px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
   .chip input { pointer-events:none; }
   .chip.selected { border-color:#111; box-shadow:0 1px 0 rgba(0,0,0,.03), 0 0 0 2px #111 inset; color:#111; font-weight:600; }
@@ -26,12 +24,9 @@
   .stack { display:flex; flex-direction:column; align-items:stretch; gap:8px; }
   .stage { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:16px; }
   canvas { width: var(--size); height: var(--size); max-width: 92vw; max-height: 92vw; }
-  /* pointer */
-  .pointer {
-    width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent;
-    border-bottom:22px solid #111; margin-top:6px;
-  }
+  .pointer { width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent; border-bottom:22px solid #111; margin-top:6px; }
   .result { min-height:28px; font-weight:700; }
+  .hint { font-size:13px; opacity:.7; margin-top:-6px; text-align:center; }
 </style>
 </head>
 <body>
@@ -50,9 +45,10 @@
 
     <!-- Custom input -->
     <div id="customRow" class="bar">
-      <input id="customInput" placeholder="Enter items separated by commas (e.g., Pizza, Sushi, Burger)" />
-      <button id="setCustom" class="ghost">Set Custom</button>
+      <input id="customInput" placeholder="Type items separated by commas, spaces, or new lines (e.g., Pizza Sushi Burger)" />
+      <button id="setCustom" class="ghost">Set</button>
     </div>
+    <div id="customHint" class="hint" style="display:none;">Tip: You can paste a list (each on a new line) or separate with commas/spaces.</div>
 
     <!-- Color selector -->
     <div class="stack">
@@ -72,12 +68,10 @@
   </div>
 
 <script>
-/* ---------- Data ---------- */
+/* ---------- Smaller color list ---------- */
 const ALL_COLORS = [
-  "red","crimson","orangered","orange","gold","yellow","greenyellow","lime","springgreen","mediumseagreen",
-  "green","teal","turquoise","cyan","deepskyblue","dodgerblue","cornflowerblue","royalblue","blue",
-  "indigo","rebeccapurple","slateblue","blueviolet","violet","magenta","deeppink","hotpink","pink",
-  "salmon","tomato","sienna","chocolate","peru","sandybrown","tan","olive","darkolivegreen","slategray"
+  "red","orange","yellow","green","blue","purple",
+  "pink","cyan","lime","gold","indigo","magenta"
 ];
 
 /* ---------- DOM ---------- */
@@ -91,6 +85,7 @@ const resultEl = document.getElementById("result");
 const customRow = document.getElementById("customRow");
 const customInput = document.getElementById("customInput");
 const setCustom = document.getElementById("setCustom");
+const customHint = document.getElementById("customHint");
 
 const colorGrid = document.getElementById("colorGrid");
 const colorActions = document.getElementById("colorActions");
@@ -104,17 +99,15 @@ let spinning = false;
 
 /* ---------- Utils ---------- */
 function contrastText(cssColor) {
-  // Create a temp canvas to parse computed color
   const d = document.createElement('div');
   d.style.color = cssColor;
   document.body.appendChild(d);
-  const rgb = getComputedStyle(d).color.match(/\d+/g).map(Number);
-  d.remove();
-  const [r,g,b] = rgb;
-  // Relative luminance
+  const m = getComputedStyle(d).color.match(/\d+/g);
+  document.body.removeChild(d);
+  if (!m) return "#111";
+  const [r,g,b] = m.map(Number);
   const srgb = [r,g,b].map(v => {
-    v/=255;
-    return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
+    v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
   });
   const L = 0.2126*srgb[0] + 0.7152*srgb[1] + 0.0722*srgb[2];
   return L > 0.55 ? "#111" : "#fff";
@@ -128,7 +121,6 @@ function drawWheel() {
   const n = Math.max(1, items.length);
   const arc = (2*Math.PI)/n;
 
-  // rotate whole wheel by current angle
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate((angle*Math.PI)/180);
@@ -137,7 +129,6 @@ function drawWheel() {
   for (let i=0;i<n;i++){
     const start = i*arc;
     const item = items[i] || {label: "—", color: "#ddd"};
-    // slice
     ctx.beginPath();
     ctx.moveTo(cx, cy);
     ctx.arc(cx, cy, r, start, start+arc);
@@ -148,12 +139,13 @@ function drawWheel() {
     ctx.strokeStyle = "rgba(0,0,0,.12)";
     ctx.stroke();
 
-    // label
+    // dynamic font size for many items
+    const base = n > 16 ? 12 : 16;
     ctx.save();
     ctx.translate(cx, cy);
     ctx.rotate(start + arc/2);
     ctx.textAlign = "right";
-    ctx.font = "16px system-ui, Arial";
+    ctx.font = `${base}px system-ui, Arial`;
     ctx.fillStyle = contrastText(item.color);
     ctx.fillText(item.label, r-12, 6);
     ctx.restore();
@@ -165,9 +157,7 @@ function selectedIndexFromAngle() {
   const n = items.length;
   if (!n) return -1;
   const seg = 360/n;
-  const a = ((angle % 360) + 360) % 360; // 0..359
-  // Pointer at top (0°). Wheel rotated by 'angle' clockwise.
-  // The slice whose center aligns with 0° is index = round((360 - a) / seg) mod n, but floor works if we flip.
+  const a = ((angle % 360) + 360) % 360;
   const idx = Math.floor(((360 - a) / seg)) % n;
   return (idx + n) % n;
 }
@@ -194,7 +184,6 @@ function buildColorGrid() {
 
     chip.append(dot, text, cb);
     chip.addEventListener("click", (e) => {
-      // avoid double toggling when clicking the checkbox
       if (e.target.tagName === "INPUT") return;
       cb.checked = !cb.checked;
       chip.classList.toggle("selected", cb.checked);
@@ -212,17 +201,22 @@ function buildColorGrid() {
 function refreshFromColorSelection() {
   const chosen = [...colorGrid.querySelectorAll("input:checked")].map(cb => cb.parentElement.dataset.color);
   items = chosen.map(c => ({ label: c, color: c }));
-  if (items.length === 0) {
-    resultEl.textContent = "Select at least one color.";
-  } else {
-    resultEl.textContent = "";
-  }
+  resultEl.textContent = items.length ? "" : "Select at least one color.";
   drawWheel();
 }
 
-/* ---------- Custom Mode ---------- */
+/* ---------- Custom Mode (multi-input fix) ---------- */
+// Accept commas, semicolons, pipes, newlines, AND (if no commas found) split on spaces too.
+function parseList(str){
+  if (!str) return [];
+  const hasCommaLike = /[,\n;|]/.test(str);
+  const raw = hasCommaLike ? str.split(/[,\n;|]+/) : str.trim().split(/\s+/);
+  // clean, uniq, limit 2..50 items
+  const cleaned = [...new Set(raw.map(s => s.trim()).filter(Boolean))];
+  return cleaned.slice(0, 50);
+}
+
 function setCustomItems(list) {
-  // Assign distinct hues for readability
   items = list.map((label, i) => {
     const h = Math.round((360/list.length) * i);
     return { label, color: `hsl(${h} 70% 55%)` };
@@ -233,15 +227,11 @@ function setCustomItems(list) {
 /* ---------- Spin ---------- */
 function spinWheel() {
   if (spinning) return;
-  if (items.length === 0) {
-    resultEl.textContent = "Add some items first 🙂";
-    return;
-  }
-  spinning = true;
-  resultEl.textContent = "";
+  if (items.length === 0) { resultEl.textContent = "Add some items first 🙂"; return; }
+  spinning = true; resultEl.textContent = "";
 
-  const spinTime = 3000 + Math.random()*3000;      // 3–6 s
-  const spinAngle = 1080 + Math.random()*360;      // 3+ turns
+  const spinTime = 3000 + Math.random()*3000;
+  const spinAngle = 1080 + Math.random()*360;
   const startAngle = angle;
   const t0 = performance.now();
 
@@ -269,35 +259,31 @@ modeSelect.addEventListener("change", () => {
   colorGrid.style.display = isColor ? "grid" : "none";
   colorActions.style.display = isColor ? "flex" : "none";
   customRow.style.display = isColor ? "none" : "flex";
+  customHint.style.display = isColor ? "none" : "block";
 
   if (isColor) {
     refreshFromColorSelection();
   } else {
-    resultEl.textContent = "";
-    // show helper text if empty
-    if (items.length === 0) {
-      setCustomItems(["Yes","No","Maybe"]);
-    } else {
-      drawWheel();
-    }
+    if (items.length === 0) setCustomItems(["Yes","No","Maybe"]);
+    drawWheel();
   }
 });
 
-setCustom.addEventListener("click", () => {
-  const list = customInput.value.split(",").map(s => s.trim()).filter(Boolean);
-  if (!list.length) {
-    resultEl.textContent = "Type at least one item, separated by commas.";
-    return;
-  }
+function applyCustomFromInput(){
+  const list = parseList(customInput.value);
+  if (list.length === 0) { resultEl.textContent = "Type at least one item."; return; }
   setCustomItems(list);
   resultEl.textContent = "";
+}
+
+setCustom.addEventListener("click", applyCustomFromInput);
+// Press Enter in the input to set
+customInput.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); applyCustomFromInput(); }
 });
 
 spinBtn.addEventListener("click", spinWheel);
-shuffleBtn.addEventListener("click", () => {
-  angle = Math.random()*360;
-  drawWheel();
-});
+shuffleBtn.addEventListener("click", () => { angle = Math.random()*360; drawWheel(); });
 
 allBtn.addEventListener("click", () => {
   colorGrid.querySelectorAll("input").forEach(cb => { cb.checked = true; cb.parentElement.classList.add("selected"); });
