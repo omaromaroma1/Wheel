@@ -23,22 +23,25 @@
   .dot { width:16px; height:16px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
   .row-actions { display:none; margin-top:6px; gap:8px; }
 
-  .stage { display:flex; flex-direction:column; align-items:center; gap:14px; margin-top:16px; }
-  /* top pointer */
-  .pointer { width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent; border-bottom:22px solid #111; }
-
+  .stage { position:relative; display:flex; flex-direction:column; align-items:center; gap:14px; margin-top:16px; }
   .wheel-wrap { position:relative; width:var(--size); height:var(--size); }
-  .rotor { position:absolute; inset:0; transition: transform 4s cubic-bezier(.15,.85,.25,1); transform: rotate(0deg); }
+
+  /* RIGHT pointer (3 o’clock), centered vertically */
+  .pointer-right {
+    position:absolute; top:50%; right:-22px; transform:translateY(-50%);
+    width:0; height:0;
+    border-top:12px solid transparent; border-bottom:12px solid transparent;
+    border-left:22px solid #111;  /* arrow points left -> toward the wheel */
+    z-index:5;
+  }
+
+  .rotor { position:absolute; inset:0; transition: transform 4.2s cubic-bezier(.15,.85,.25,1); transform: rotate(0deg); will-change: transform; }
   .wheel {
-    position:absolute; inset:0;
-    border-radius:50%;
+    position:absolute; inset:0; border-radius:50%;
     border:10px solid #fff; box-shadow:0 8px 20px rgba(0,0,0,.08), inset 0 0 0 1px rgba(0,0,0,.1);
     background: conic-gradient(#ddd 0 100%); /* replaced dynamically */
   }
-  canvas#wheelText {
-    position:absolute; inset:0; width:100%; height:100%;
-    pointer-events:none; /* let clicks pass */
-  }
+  canvas#wheelText { position:absolute; inset:0; width:100%; height:100%; pointer-events:none; }
 
   .buttons { display:flex; gap:12px; justify-content:center; margin-top:10px; }
   .result { min-height:28px; font-weight:800; font-size:18px; text-align:center; }
@@ -51,7 +54,7 @@
     <label for="mode">Mode:</label>
     <select id="mode">
       <option value="color">Colors</option>
-      <option value="custom">Custom</option>
+      <option value="custom" selected>Custom</option>
     </select>
   </div>
 
@@ -69,8 +72,8 @@
   <div id="colorGrid" class="grid" aria-label="Color choices"></div>
 
   <div class="stage">
-    <div class="pointer" aria-hidden="true"></div>
     <div class="wheel-wrap">
+      <div class="pointer-right" aria-hidden="true"></div>
       <div id="rotor" class="rotor">
         <div id="wheel" class="wheel" aria-hidden="true"></div>
         <canvas id="wheelText" width="800" height="800"></canvas>
@@ -89,7 +92,8 @@
 <script>
 /* ---------- Config ---------- */
 const ALL_COLORS = ["red","orange","yellow","green","blue","purple","pink","cyan","lime","gold","indigo","magenta"];
-const ANGLE_OFFSET = -90; // pointer is at top; conic-gradient 0deg is at right -> shift -90°
+// Pointer on the RIGHT means 0° (conic-gradient default) already points at the pointer -> no offset needed.
+const ANGLE_OFFSET = 0;
 
 /* ---------- DOM ---------- */
 const modeSel = document.getElementById('mode');
@@ -113,6 +117,7 @@ const resultEl = document.getElementById('result');
 /* ---------- State ---------- */
 let entries = []; // array of {label, color}
 let currentRotation = 0;
+let spinning = false;
 
 /* ---------- Helpers ---------- */
 function parseList(str){
@@ -157,11 +162,10 @@ function rebuildFromCustom(list){
 }
 
 function paintWheel(){
-  // gradient
   if (!entries.length){
     wheelEl.style.background = 'conic-gradient(#ddd 0 100%)';
     drawLabels([]); // clear
-    resultEl.textContent = 'Select some colors or add custom items.';
+    resultEl.textContent = 'Add custom items or pick some colors.';
     return;
   }
   const step = 100 / entries.length;
@@ -171,13 +175,11 @@ function paintWheel(){
     return `${e.color} ${from}% ${to}%`;
   }).join(', ');
   wheelEl.style.background = `conic-gradient(${stops})`;
-
-  // labels
   drawLabels(entries);
   resultEl.textContent = '';
 }
 
-/* ----- Draw black, centered, upright labels in each slice ----- */
+/* ----- Draw black, centered labels in each wedge (upright toward the pointer) ----- */
 function drawLabels(items){
   const w = textCanvas.width, h = textCanvas.height;
   ctx.clearRect(0,0,w,h);
@@ -188,50 +190,54 @@ function drawLabels(items){
   const n = items.length;
   const arc = (2*Math.PI)/n;
 
-  const base = n > 20 ? 20 : n > 12 ? 24 : 28; // adjust font size to count
+  // Font size scales down with many items
+  const base = n > 20 ? 20 : n > 12 ? 24 : 28;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillStyle = '#000'; // force black text
+  ctx.fillStyle = '#000';
 
   for (let i=0;i<n;i++){
     const item = items[i];
-    const a = i*arc + arc/2;            // center of slice (from +x axis)
+    const a = i*arc + arc/2;   // center angle of slice; 0 rad = right
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(a - Math.PI/2);          // make text upright toward top
+    ctx.rotate(a);             // keep text upright relative to right-side pointer
     ctx.font = `${base}px system-ui, Arial`;
-    ctx.fillText(item.label, 0, -r);    // centered in its slice
+    ctx.fillText(item.label, r, 0);  // centered along the slice radius
     ctx.restore();
   }
 }
 
-/* Compute rotation to land index under top pointer (add -90° offset) */
-function rotationForIndex(idx, extraTurns=5){
+/* Compute rotation to land index under the RIGHT pointer (no extra offset needed) */
+function rotationForIndex(idx, extraTurns=7){
   const n = entries.length;
   const slice = 360/n;
-  const centerOfSlice = (idx * slice) + slice/2;       // 0° = right
+  const centerOfSlice = (idx * slice) + slice/2;  // 0° = right (where pointer is)
   return -(extraTurns*360 + centerOfSlice + ANGLE_OFFSET);
 }
 
 /* ---------- Events ---------- */
 colorGrid.addEventListener('click', (e)=>{
   const chip = e.target.closest('.chip');
-  if (!chip) return;
+  if (!chip || spinning) return;
   const pressed = chip.getAttribute('aria-pressed') === 'true';
   chip.setAttribute('aria-pressed', String(!pressed));
   rebuildFromColors();
 });
 
 allBtn.addEventListener('click', ()=>{
+  if (spinning) return;
   colorGrid.querySelectorAll('.chip').forEach(ch=>ch.setAttribute('aria-pressed','true'));
   rebuildFromColors();
 });
 noneBtn.addEventListener('click', ()=>{
+  if (spinning) return;
   colorGrid.querySelectorAll('.chip').forEach(ch=>ch.setAttribute('aria-pressed','false'));
   rebuildFromColors();
 });
 
 modeSel.addEventListener('change', ()=>{
+  if (spinning) return;
   const isColor = modeSel.value === 'color';
   colorGrid.style.display = isColor ? 'grid' : 'none';
   colorActions.style.display = isColor ? 'flex' : 'none';
@@ -244,6 +250,7 @@ modeSel.addEventListener('change', ()=>{
 });
 
 setCustom.addEventListener('click', ()=>{
+  if (spinning) return;
   const list = parseList(customInput.value);
   if (!list.length){ resultEl.textContent = 'Type at least one item.'; return; }
   rebuildFromCustom(list);
@@ -253,34 +260,47 @@ customInput.addEventListener('keydown', (e)=>{
 });
 
 spinBtn.addEventListener('click', ()=>{
+  if (spinning) return;
   if (!entries.length){ resultEl.textContent = 'Add some items first 🙂'; return; }
+  spinning = true;
+  spinBtn.disabled = true; shuffleBtn.disabled = true;
   resultEl.textContent = '';
-  const idx = Math.floor(Math.random() * entries.length);
-  const turns = 4 + Math.floor(Math.random()*3); // 4–6 turns
+
+  // Strong spin: 6–10 full turns
+  const turns = 6 + Math.floor(Math.random()*5);
+  const idx = Math.floor(Math.random()*entries.length);
   const target = rotationForIndex(idx, turns);
-  currentRotation = target;
+
+  // Ensure consistent long transition each time
+  rotorEl.style.transition = 'transform 4.2s cubic-bezier(.15,.85,.25,1)';
   rotorEl.style.transform = `rotate(${target}deg)`;
+  currentRotation = target;
 
   rotorEl.addEventListener('transitionend', function handler(){
     rotorEl.removeEventListener('transitionend', handler);
     resultEl.textContent = `🎉 Result: ${entries[idx].label}`;
+    spinning = false;
+    spinBtn.disabled = false; shuffleBtn.disabled = false;
   }, { once:true });
 });
 
 shuffleBtn.addEventListener('click', ()=>{
+  if (spinning) return;
   const deg = Math.floor(Math.random()*360);
-  currentRotation = currentRotation + deg;
-  rotorEl.style.transition = 'transform .3s ease';
+  currentRotation += deg;
+  rotorEl.style.transition = 'transform .35s ease';
   rotorEl.style.transform = `rotate(${currentRotation}deg)`;
-  setTimeout(()=>{ rotorEl.style.transition = 'transform 4s cubic-bezier(.15,.85,.25,1)'; }, 350);
+  setTimeout(()=>{ rotorEl.style.transition = 'transform 4.2s cubic-bezier(.15,.85,.25,1)'; }, 360);
 });
 
-/* ---------- Init ---------- */
+/* ---------- Init (start in CUSTOM mode) ---------- */
 function init(){
   buildColorGrid();
-  colorGrid.style.display = 'grid';
-  colorActions.style.display = 'flex';
-  rebuildFromColors();
+  modeSel.value = 'custom';
+  colorGrid.style.display = 'none';
+  colorActions.style.display = 'none';
+  customRow.style.display = 'flex';
+  rebuildFromCustom(['Yes','No','Maybe']);  // starter items
 }
 init();
 </script>
