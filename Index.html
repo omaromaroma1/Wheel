@@ -5,17 +5,14 @@
 <meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Spin the Wheel</title>
 <style>
-  :root { --size: 360px; }
+  :root { --size: 380px; }
   body { font-family: system-ui, Arial; margin:0; background:#f7f7fb; color:#222; }
   header { text-align:center; padding:16px 12px; font-weight:700; font-size:22px; }
   .wrap { max-width:900px; margin:0 auto; padding:0 16px 28px; }
   .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center; }
 
   select, input, button { font-size:16px; padding:10px 12px; border-radius:10px; border:1px solid #ddd; background:#fff; }
-  button.primary {
-    background:#111; color:#fff; border:0;
-    padding:12px 24px; font-size:18px; border-radius:12px;
-  }
+  button.primary { background:#111; color:#fff; border:0; padding:12px 24px; font-size:18px; border-radius:12px; }
   button.ghost { background:#fff; border:1px solid #ccc; }
   #customRow { display:none; gap:8px; justify-content:center; }
   #customInput { width:min(680px, 90vw); }
@@ -27,6 +24,7 @@
   .row-actions { display:none; margin-top:6px; gap:8px; }
 
   .stage { display:flex; flex-direction:column; align-items:center; gap:14px; margin-top:16px; }
+  /* top pointer */
   .pointer { width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent; border-bottom:22px solid #111; }
 
   .wheel-wrap { position:relative; width:var(--size); height:var(--size); }
@@ -39,7 +37,7 @@
   }
   canvas#wheelText {
     position:absolute; inset:0; width:100%; height:100%;
-    pointer-events:none; /* allow clicks to pass through */
+    pointer-events:none; /* let clicks pass */
   }
 
   .buttons { display:flex; gap:12px; justify-content:center; margin-top:10px; }
@@ -91,6 +89,7 @@
 <script>
 /* ---------- Config ---------- */
 const ALL_COLORS = ["red","orange","yellow","green","blue","purple","pink","cyan","lime","gold","indigo","magenta"];
+const ANGLE_OFFSET = -90; // pointer is at top; conic-gradient 0deg is at right -> shift -90°
 
 /* ---------- DOM ---------- */
 const modeSel = document.getElementById('mode');
@@ -123,22 +122,6 @@ function parseList(str){
   return [...new Set(parts.map(s=>s.trim()).filter(Boolean))].slice(0,50);
 }
 function hsl(i,n){ return `hsl(${Math.round((360/n)*i)} 70% 55%)`; }
-
-function contrastText(cssColor) {
-  // Get RGB of color
-  const d = document.createElement('div');
-  d.style.color = cssColor;
-  document.body.appendChild(d);
-  const m = getComputedStyle(d).color.match(/\d+/g);
-  d.remove();
-  if (!m) return "#111";
-  const [r,g,b] = m.map(Number);
-  const srgb = [r,g,b].map(v => {
-    v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
-  });
-  const L = 0.2126*srgb[0] + 0.7152*srgb[1] + 0.0722*srgb[2];
-  return L > 0.55 ? "#111" : "#fff";
-}
 
 /* ---------- UI Builders ---------- */
 function buildColorGrid(){
@@ -174,7 +157,7 @@ function rebuildFromCustom(list){
 }
 
 function paintWheel(){
-  // Set gradient background
+  // gradient
   if (!entries.length){
     wheelEl.style.background = 'conic-gradient(#ddd 0 100%)';
     drawLabels([]); // clear
@@ -189,43 +172,45 @@ function paintWheel(){
   }).join(', ');
   wheelEl.style.background = `conic-gradient(${stops})`;
 
-  // Draw labels on canvas
+  // labels
   drawLabels(entries);
   resultEl.textContent = '';
 }
 
+/* ----- Draw black, centered, upright labels in each slice ----- */
 function drawLabels(items){
   const w = textCanvas.width, h = textCanvas.height;
   ctx.clearRect(0,0,w,h);
   if (!items.length) return;
+
   const cx = w/2, cy = h/2;
-  const r = Math.min(cx, cy) - 40; // text radius
+  const r = Math.min(cx, cy) - 46; // radius where text sits
   const n = items.length;
   const arc = (2*Math.PI)/n;
 
-  const base = n > 16 ? 22 : 28; // canvas pixels; scales with canvas size
-  ctx.textAlign = 'right';
+  const base = n > 20 ? 20 : n > 12 ? 24 : 28; // adjust font size to count
+  ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
+  ctx.fillStyle = '#000'; // force black text
 
   for (let i=0;i<n;i++){
     const item = items[i];
-    const a = i*arc + arc/2; // center angle
+    const a = i*arc + arc/2;            // center of slice (from +x axis)
     ctx.save();
     ctx.translate(cx, cy);
-    ctx.rotate(a);
+    ctx.rotate(a - Math.PI/2);          // make text upright toward top
     ctx.font = `${base}px system-ui, Arial`;
-    ctx.fillStyle = contrastText(item.color);
-    ctx.fillText(item.label, r, 0);
+    ctx.fillText(item.label, 0, -r);    // centered in its slice
     ctx.restore();
   }
 }
 
-/* Compute rotation to land index at pointer (top/0deg) */
+/* Compute rotation to land index under top pointer (add -90° offset) */
 function rotationForIndex(idx, extraTurns=5){
   const n = entries.length;
   const slice = 360/n;
-  const centerOfSlice = (idx * slice) + slice/2;
-  return -(extraTurns*360 + centerOfSlice);
+  const centerOfSlice = (idx * slice) + slice/2;       // 0° = right
+  return -(extraTurns*360 + centerOfSlice + ANGLE_OFFSET);
 }
 
 /* ---------- Events ---------- */
@@ -271,7 +256,7 @@ spinBtn.addEventListener('click', ()=>{
   if (!entries.length){ resultEl.textContent = 'Add some items first 🙂'; return; }
   resultEl.textContent = '';
   const idx = Math.floor(Math.random() * entries.length);
-  const turns = 4 + Math.floor(Math.random()*3); // 4-6 turns
+  const turns = 4 + Math.floor(Math.random()*3); // 4–6 turns
   const target = rotationForIndex(idx, turns);
   currentRotation = target;
   rotorEl.style.transform = `rotate(${target}deg)`;
@@ -291,10 +276,13 @@ shuffleBtn.addEventListener('click', ()=>{
 });
 
 /* ---------- Init ---------- */
-buildColorGrid();
-colorGrid.style.display = 'grid';
-colorActions.style.display = 'flex';
-rebuildFromColors();
+function init(){
+  buildColorGrid();
+  colorGrid.style.display = 'grid';
+  colorActions.style.display = 'flex';
+  rebuildFromColors();
+}
+init();
 </script>
 </body>
 </html>
