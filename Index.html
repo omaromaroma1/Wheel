@@ -16,17 +16,20 @@
   #customRow { display:none; gap:8px; justify-content:center; }
   #customInput { width: min(680px, 90vw); }
   .grid { display:none; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:10px; margin-top:14px; }
-  .chip { display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; border:1px solid #ddd; background:white; cursor:pointer; user-select:none; }
+  /* Button-based chips for reliable tapping on mobile */
+  .chip {
+    display:flex; align-items:center; gap:10px; padding:10px 12px;
+    border-radius:12px; border:1px solid #ddd; background:white; cursor:pointer; user-select:none;
+  }
+  .chip[aria-pressed="true"] { border-color:#111; box-shadow:0 1px 0 rgba(0,0,0,.03), 0 0 0 2px #111 inset; color:#111; font-weight:600; }
   .dot { width:18px; height:18px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
-  .chip input { pointer-events:none; }
-  .chip.selected { border-color:#111; box-shadow:0 1px 0 rgba(0,0,0,.03), 0 0 0 2px #111 inset; color:#111; font-weight:600; }
   .row-actions { display:none; margin-top:6px; gap:8px; }
   .stack { display:flex; flex-direction:column; align-items:stretch; gap:8px; }
+
   .stage { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:16px; }
   canvas { width: var(--size); height: var(--size); max-width: 92vw; max-height: 92vw; }
   .pointer { width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent; border-bottom:22px solid #111; margin-top:6px; }
   .result { min-height:28px; font-weight:700; }
-  .hint { font-size:13px; opacity:.7; margin-top:-6px; text-align:center; }
 </style>
 </head>
 <body>
@@ -39,25 +42,23 @@
         <option value="custom">Custom</option>
       </select>
 
-      <button id="spinBtn" class="primary">Spin</button>
-      <button id="shuffleBtn" class="ghost" title="Randomize starting angle">Shuffle</button>
+      <button id="spinBtn" class="primary" type="button">Spin</button>
+      <button id="shuffleBtn" class="ghost" type="button" title="Randomize starting angle">Shuffle</button>
     </div>
 
     <!-- Custom input -->
     <div id="customRow" class="bar">
-      <input id="customInput" placeholder="Type items separated by commas, spaces, or new lines (e.g., Pizza Sushi Burger)" />
-      <button id="setCustom" class="ghost">Set</button>
+      <input id="customInput" placeholder="Type items separated by commas, spaces, or new lines" />
+      <button id="setCustom" class="ghost" type="button">Set</button>
     </div>
-    <div id="customHint" class="hint" style="display:none;">Tip: You can paste a list (each on a new line) or separate with commas/spaces.</div>
 
     <!-- Color selector -->
     <div class="stack">
       <div class="row-actions bar" id="colorActions">
-        <button id="allBtn" class="ghost">Select All</button>
-        <button id="noneBtn" class="ghost">Clear</button>
-        <span style="opacity:.65">Toggle colors below:</span>
+        <button id="allBtn" class="ghost" type="button">Select All</button>
+        <button id="noneBtn" class="ghost" type="button">Clear</button>
       </div>
-      <div id="colorGrid" class="grid"></div>
+      <div id="colorGrid" class="grid" aria-label="Color choices"></div>
     </div>
 
     <div class="stage">
@@ -85,7 +86,6 @@ const resultEl = document.getElementById("result");
 const customRow = document.getElementById("customRow");
 const customInput = document.getElementById("customInput");
 const setCustom = document.getElementById("setCustom");
-const customHint = document.getElementById("customHint");
 
 const colorGrid = document.getElementById("colorGrid");
 const colorActions = document.getElementById("colorActions");
@@ -112,9 +112,9 @@ function contrastText(cssColor) {
   const L = 0.2126*srgb[0] + 0.7152*srgb[1] + 0.0722*srgb[2];
   return L > 0.55 ? "#111" : "#fff";
 }
-
 function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
 
+/* ---------- Wheel ---------- */
 function drawWheel() {
   ctx.clearRect(0,0,canvas.width,canvas.height);
   const cx = canvas.width/2, cy = canvas.height/2, r = Math.min(cx, cy) - 20;
@@ -139,7 +139,6 @@ function drawWheel() {
     ctx.strokeStyle = "rgba(0,0,0,.12)";
     ctx.stroke();
 
-    // dynamic font size for many items
     const base = n > 16 ? 12 : 16;
     ctx.save();
     ctx.translate(cx, cy);
@@ -162,12 +161,14 @@ function selectedIndexFromAngle() {
   return (idx + n) % n;
 }
 
-/* ---------- Colors UI ---------- */
+/* ---------- Colors UI (button chips; reliable on mobile) ---------- */
 function buildColorGrid() {
   colorGrid.innerHTML = "";
   ALL_COLORS.forEach(col => {
-    const chip = document.createElement("label");
-    chip.className = "chip selected";
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "chip";
+    chip.setAttribute("aria-pressed", "true");
     chip.dataset.color = col;
 
     const dot = document.createElement("span");
@@ -177,41 +178,32 @@ function buildColorGrid() {
     const text = document.createElement("span");
     text.textContent = col;
 
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = true;
-    cb.ariaLabel = col;
-
-    chip.append(dot, text, cb);
-    chip.addEventListener("click", (e) => {
-      if (e.target.tagName === "INPUT") return;
-      cb.checked = !cb.checked;
-      chip.classList.toggle("selected", cb.checked);
-      refreshFromColorSelection();
-    });
-    cb.addEventListener("change", () => {
-      chip.classList.toggle("selected", cb.checked);
-      refreshFromColorSelection();
-    });
-
+    chip.append(dot, text);
     colorGrid.appendChild(chip);
   });
 }
 
+// Single event listener handles all chip clicks
+colorGrid.addEventListener("click", (e) => {
+  const chip = e.target.closest(".chip");
+  if (!chip) return;
+  const pressed = chip.getAttribute("aria-pressed") === "true";
+  chip.setAttribute("aria-pressed", String(!pressed));
+  refreshFromColorSelection();
+});
+
 function refreshFromColorSelection() {
-  const chosen = [...colorGrid.querySelectorAll("input:checked")].map(cb => cb.parentElement.dataset.color);
+  const chosen = [...colorGrid.querySelectorAll('.chip[aria-pressed="true"]')]
+    .map(el => el.dataset.color);
   items = chosen.map(c => ({ label: c, color: c }));
-  resultEl.textContent = items.length ? "" : "Select at least one color.";
   drawWheel();
 }
 
-/* ---------- Custom Mode (multi-input fix) ---------- */
-// Accept commas, semicolons, pipes, newlines, AND (if no commas found) split on spaces too.
+/* ---------- Custom Mode (multi-input) ---------- */
 function parseList(str){
   if (!str) return [];
   const hasCommaLike = /[,\n;|]/.test(str);
   const raw = hasCommaLike ? str.split(/[,\n;|]+/) : str.trim().split(/\s+/);
-  // clean, uniq, limit 2..50 items
   const cleaned = [...new Set(raw.map(s => s.trim()).filter(Boolean))];
   return cleaned.slice(0, 50);
 }
@@ -259,7 +251,6 @@ modeSelect.addEventListener("change", () => {
   colorGrid.style.display = isColor ? "grid" : "none";
   colorActions.style.display = isColor ? "flex" : "none";
   customRow.style.display = isColor ? "none" : "flex";
-  customHint.style.display = isColor ? "none" : "block";
 
   if (isColor) {
     refreshFromColorSelection();
@@ -277,7 +268,6 @@ function applyCustomFromInput(){
 }
 
 setCustom.addEventListener("click", applyCustomFromInput);
-// Press Enter in the input to set
 customInput.addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); applyCustomFromInput(); }
 });
@@ -286,11 +276,11 @@ spinBtn.addEventListener("click", spinWheel);
 shuffleBtn.addEventListener("click", () => { angle = Math.random()*360; drawWheel(); });
 
 allBtn.addEventListener("click", () => {
-  colorGrid.querySelectorAll("input").forEach(cb => { cb.checked = true; cb.parentElement.classList.add("selected"); });
+  colorGrid.querySelectorAll(".chip").forEach(chip => chip.setAttribute("aria-pressed","true"));
   refreshFromColorSelection();
 });
 noneBtn.addEventListener("click", () => {
-  colorGrid.querySelectorAll("input").forEach(cb => { cb.checked = false; cb.parentElement.classList.remove("selected"); });
+  colorGrid.querySelectorAll(".chip").forEach(chip => chip.setAttribute("aria-pressed","false"));
   refreshFromColorSelection();
 });
 
