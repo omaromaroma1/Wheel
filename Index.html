@@ -1,295 +1,236 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>Spin the Wheel</title>
 <style>
-  :root { --size: 420px; }
-  body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#f7f7fb; color:#222; }
-  header { text-align:center; padding:18px 12px; font-weight:700; font-size:22px; }
-  .wrap { max-width: 920px; margin: 0 auto; padding: 0 16px 30px; }
-  .bar { display:flex; gap:10px; flex-wrap: wrap; align-items: center; justify-content:center; }
-  select, input, button { font-size:16px; padding:10px 12px; border-radius:10px; border:1px solid #ddd; background:white; }
-  button.primary { background:#111; color:white; border:0; }
+  :root { --size: 360px; }
+  body { font-family: system-ui, Arial; margin:0; background:#f7f7fb; color:#222; }
+  header { text-align:center; padding:16px 12px; font-weight:700; font-size:22px; }
+  .wrap { max-width:900px; margin:0 auto; padding:0 16px 28px; }
+  .bar { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:center; }
+  select, input, button { font-size:16px; padding:10px 12px; border-radius:10px; border:1px solid #ddd; background:#fff; }
+  button.primary { background:#111; color:#fff; border:0; }
   button.ghost { background:#fff; border:1px solid #ccc; }
   #customRow { display:none; gap:8px; justify-content:center; }
-  #customInput { width: min(680px, 90vw); }
-  .grid { display:none; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:10px; margin-top:14px; }
-  /* Button-based chips for reliable tapping on mobile */
-  .chip {
-    display:flex; align-items:center; gap:10px; padding:10px 12px;
-    border-radius:12px; border:1px solid #ddd; background:white; cursor:pointer; user-select:none;
-  }
-  .chip[aria-pressed="true"] { border-color:#111; box-shadow:0 1px 0 rgba(0,0,0,.03), 0 0 0 2px #111 inset; color:#111; font-weight:600; }
-  .dot { width:18px; height:18px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
+  #customInput { width:min(680px, 90vw); }
+  .grid { display:none; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap:10px; margin-top:12px; }
+  .chip { display:flex; align-items:center; gap:8px; padding:10px 12px; border:1px solid #ddd; border-radius:12px; background:#fff; cursor:pointer; }
+  .chip[aria-pressed="true"] { border-color:#111; box-shadow:0 0 0 2px #111 inset; font-weight:600; }
+  .dot { width:16px; height:16px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
   .row-actions { display:none; margin-top:6px; gap:8px; }
-  .stack { display:flex; flex-direction:column; align-items:stretch; gap:8px; }
 
-  .stage { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:16px; }
-  canvas { width: var(--size); height: var(--size); max-width: 92vw; max-height: 92vw; }
-  .pointer { width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent; border-bottom:22px solid #111; margin-top:6px; }
-  .result { min-height:28px; font-weight:700; }
+  .stage { display:flex; flex-direction:column; align-items:center; gap:14px; margin-top:16px; }
+  .pointer { width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent; border-bottom:22px solid #111; }
+  .wheel-wrap { position:relative; width:var(--size); height:var(--size); }
+  .wheel {
+    width:100%; height:100%; border-radius:50%;
+    border:10px solid #fff; box-shadow:0 8px 20px rgba(0,0,0,.08), inset 0 0 0 1px rgba(0,0,0,.1);
+    transition: transform 4s cubic-bezier(.15,.85,.25,1);  /* smooth spin */
+    transform: rotate(0deg);
+    background: conic-gradient(#ddd 0 100%); /* replaced dynamically */
+  }
+  .result { min-height:28px; font-weight:800; font-size:18px; }
 </style>
 </head>
 <body>
-  <header>🎡 Spin the Wheel</header>
-  <div class="wrap">
-    <div class="bar">
-      <label for="mode">Mode:</label>
-      <select id="mode">
-        <option value="color">Colors</option>
-        <option value="custom">Custom</option>
-      </select>
+<header>🎡 Spin the Wheel</header>
+<div class="wrap">
+  <div class="bar">
+    <label for="mode">Mode:</label>
+    <select id="mode">
+      <option value="color">Colors</option>
+      <option value="custom">Custom</option>
+    </select>
 
-      <button id="spinBtn" class="primary" type="button">Spin</button>
-      <button id="shuffleBtn" class="ghost" type="button" title="Randomize starting angle">Shuffle</button>
-    </div>
-
-    <!-- Custom input -->
-    <div id="customRow" class="bar">
-      <input id="customInput" placeholder="Type items separated by commas, spaces, or new lines" />
-      <button id="setCustom" class="ghost" type="button">Set</button>
-    </div>
-
-    <!-- Color selector -->
-    <div class="stack">
-      <div class="row-actions bar" id="colorActions">
-        <button id="allBtn" class="ghost" type="button">Select All</button>
-        <button id="noneBtn" class="ghost" type="button">Clear</button>
-      </div>
-      <div id="colorGrid" class="grid" aria-label="Color choices"></div>
-    </div>
-
-    <div class="stage">
-      <div class="pointer" aria-hidden="true"></div>
-      <canvas id="wheel" width="500" height="500"></canvas>
-      <div class="result" id="result"></div>
-    </div>
+    <button id="spinBtn" class="primary" type="button">Spin</button>
+    <button id="shuffleBtn" class="ghost" type="button" title="Randomize start">Shuffle</button>
   </div>
 
+  <!-- Custom input -->
+  <div id="customRow" class="bar">
+    <input id="customInput" placeholder="Type items separated by commas, spaces, or new lines" />
+    <button id="setCustom" class="ghost" type="button">Set</button>
+  </div>
+
+  <!-- Color selector -->
+  <div class="row-actions bar" id="colorActions">
+    <button id="allBtn" class="ghost" type="button">Select All</button>
+    <button id="noneBtn" class="ghost" type="button">Clear</button>
+  </div>
+  <div id="colorGrid" class="grid" aria-label="Color choices"></div>
+
+  <div class="stage">
+    <div class="pointer" aria-hidden="true"></div>
+    <div class="wheel-wrap">
+      <div id="wheel" class="wheel" aria-live="polite"></div>
+    </div>
+    <div id="result" class="result"></div>
+  </div>
+</div>
+
 <script>
-/* ---------- Smaller color list ---------- */
-const ALL_COLORS = [
-  "red","orange","yellow","green","blue","purple",
-  "pink","cyan","lime","gold","indigo","magenta"
-];
+/* ---------- Config ---------- */
+const ALL_COLORS = ["red","orange","yellow","green","blue","purple","pink","cyan","lime","gold","indigo","magenta"];
 
 /* ---------- DOM ---------- */
-const canvas = document.getElementById("wheel");
-const ctx = canvas.getContext("2d");
-const spinBtn = document.getElementById("spinBtn");
-const shuffleBtn = document.getElementById("shuffleBtn");
-const modeSelect = document.getElementById("mode");
-const resultEl = document.getElementById("result");
+const modeSel = document.getElementById('mode');
+const colorGrid = document.getElementById('colorGrid');
+const colorActions = document.getElementById('colorActions');
+const allBtn = document.getElementById('allBtn');
+const noneBtn = document.getElementById('noneBtn');
+const customRow = document.getElementById('customRow');
+const customInput = document.getElementById('customInput');
+const setCustom = document.getElementById('setCustom');
 
-const customRow = document.getElementById("customRow");
-const customInput = document.getElementById("customInput");
-const setCustom = document.getElementById("setCustom");
-
-const colorGrid = document.getElementById("colorGrid");
-const colorActions = document.getElementById("colorActions");
-const allBtn = document.getElementById("allBtn");
-const noneBtn = document.getElementById("noneBtn");
+const wheelEl = document.getElementById('wheel');
+const spinBtn = document.getElementById('spinBtn');
+const shuffleBtn = document.getElementById('shuffleBtn');
+const resultEl = document.getElementById('result');
 
 /* ---------- State ---------- */
-let items = [];  // array of { label, color }
-let angle = 0;
-let spinning = false;
+let entries = []; // array of {label, color}
+let currentRotation = 0;
 
-/* ---------- Utils ---------- */
-function contrastText(cssColor) {
-  const d = document.createElement('div');
-  d.style.color = cssColor;
-  document.body.appendChild(d);
-  const m = getComputedStyle(d).color.match(/\d+/g);
-  document.body.removeChild(d);
-  if (!m) return "#111";
-  const [r,g,b] = m.map(Number);
-  const srgb = [r,g,b].map(v => {
-    v/=255; return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
-  });
-  const L = 0.2126*srgb[0] + 0.7152*srgb[1] + 0.0722*srgb[2];
-  return L > 0.55 ? "#111" : "#fff";
+/* ---------- Helpers ---------- */
+function parseList(str){
+  if (!str) return [];
+  const hasSep = /[,\n;|]/.test(str);
+  const parts = hasSep ? str.split(/[,\n;|]+/) : str.trim().split(/\s+/);
+  return [...new Set(parts.map(s=>s.trim()).filter(Boolean))].slice(0,50);
 }
-function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
+function hsl(i,n){ return `hsl(${Math.round((360/n)*i)} 70% 55%)`; }
 
-/* ---------- Wheel ---------- */
-function drawWheel() {
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  const cx = canvas.width/2, cy = canvas.height/2, r = Math.min(cx, cy) - 20;
-  const n = Math.max(1, items.length);
-  const arc = (2*Math.PI)/n;
+function buildColorGrid(){
+  colorGrid.innerHTML = '';
+  ALL_COLORS.forEach(c=>{
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'chip';
+    chip.setAttribute('aria-pressed','true');
+    chip.dataset.color = c;
 
-  ctx.save();
-  ctx.translate(cx, cy);
-  ctx.rotate((angle*Math.PI)/180);
-  ctx.translate(-cx, -cy);
+    const dot = document.createElement('span');
+    dot.className = 'dot'; dot.style.background = c;
+    const label = document.createElement('span'); label.textContent = c;
 
-  for (let i=0;i<n;i++){
-    const start = i*arc;
-    const item = items[i] || {label: "—", color: "#ddd"};
-    ctx.beginPath();
-    ctx.moveTo(cx, cy);
-    ctx.arc(cx, cy, r, start, start+arc);
-    ctx.closePath();
-    ctx.fillStyle = item.color;
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(0,0,0,.12)";
-    ctx.stroke();
-
-    const base = n > 16 ? 12 : 16;
-    ctx.save();
-    ctx.translate(cx, cy);
-    ctx.rotate(start + arc/2);
-    ctx.textAlign = "right";
-    ctx.font = `${base}px system-ui, Arial`;
-    ctx.fillStyle = contrastText(item.color);
-    ctx.fillText(item.label, r-12, 6);
-    ctx.restore();
-  }
-  ctx.restore();
-}
-
-function selectedIndexFromAngle() {
-  const n = items.length;
-  if (!n) return -1;
-  const seg = 360/n;
-  const a = ((angle % 360) + 360) % 360;
-  const idx = Math.floor(((360 - a) / seg)) % n;
-  return (idx + n) % n;
-}
-
-/* ---------- Colors UI (button chips; reliable on mobile) ---------- */
-function buildColorGrid() {
-  colorGrid.innerHTML = "";
-  ALL_COLORS.forEach(col => {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "chip";
-    chip.setAttribute("aria-pressed", "true");
-    chip.dataset.color = col;
-
-    const dot = document.createElement("span");
-    dot.className = "dot";
-    dot.style.background = col;
-
-    const text = document.createElement("span");
-    text.textContent = col;
-
-    chip.append(dot, text);
+    chip.append(dot,label);
     colorGrid.appendChild(chip);
   });
 }
-
-// Single event listener handles all chip clicks
-colorGrid.addEventListener("click", (e) => {
-  const chip = e.target.closest(".chip");
-  if (!chip) return;
-  const pressed = chip.getAttribute("aria-pressed") === "true";
-  chip.setAttribute("aria-pressed", String(!pressed));
-  refreshFromColorSelection();
-});
-
-function refreshFromColorSelection() {
-  const chosen = [...colorGrid.querySelectorAll('.chip[aria-pressed="true"]')]
-    .map(el => el.dataset.color);
-  items = chosen.map(c => ({ label: c, color: c }));
-  drawWheel();
+function selectedColors(){
+  return [...colorGrid.querySelectorAll('.chip[aria-pressed="true"]')].map(ch=>ch.dataset.color);
 }
 
-/* ---------- Custom Mode (multi-input) ---------- */
-function parseList(str){
-  if (!str) return [];
-  const hasCommaLike = /[,\n;|]/.test(str);
-  const raw = hasCommaLike ? str.split(/[,\n;|]+/) : str.trim().split(/\s+/);
-  const cleaned = [...new Set(raw.map(s => s.trim()).filter(Boolean))];
-  return cleaned.slice(0, 50);
+function rebuildFromColors(){
+  const cols = selectedColors();
+  entries = cols.map(c=>({label:c, color:c}));
+  paintWheel();
+}
+function rebuildFromCustom(list){
+  entries = list.map((label,i)=>({label, color: hsl(i, list.length)}));
+  paintWheel();
 }
 
-function setCustomItems(list) {
-  items = list.map((label, i) => {
-    const h = Math.round((360/list.length) * i);
-    return { label, color: `hsl(${h} 70% 55%)` };
-  });
-  drawWheel();
-}
-
-/* ---------- Spin ---------- */
-function spinWheel() {
-  if (spinning) return;
-  if (items.length === 0) { resultEl.textContent = "Add some items first 🙂"; return; }
-  spinning = true; resultEl.textContent = "";
-
-  const spinTime = 3000 + Math.random()*3000;
-  const spinAngle = 1080 + Math.random()*360;
-  const startAngle = angle;
-  const t0 = performance.now();
-
-  function step(t){
-    const elapsed = t - t0;
-    if (elapsed < spinTime) {
-      const p = easeOut(elapsed / spinTime);
-      angle = startAngle + spinAngle * p;
-      drawWheel();
-      requestAnimationFrame(step);
-    } else {
-      spinning = false;
-      angle = startAngle + spinAngle;
-      drawWheel();
-      const idx = selectedIndexFromAngle();
-      if (idx >= 0) resultEl.textContent = `🎉 Result: ${items[idx].label}`;
-    }
+function paintWheel(){
+  // If no entries, show neutral
+  if (!entries.length){
+    wheelEl.style.background = 'conic-gradient(#ddd 0 100%)';
+    resultEl.textContent = 'Select some colors or add custom items.';
+    return;
   }
-  requestAnimationFrame(step);
+  // Build conic-gradient with equal slices
+  const step = 100 / entries.length;
+  const stops = entries.map((e,i)=>{
+    const from = (i*step).toFixed(4);
+    const to   = ((i+1)*step).toFixed(4);
+    return `${e.color} ${from}% ${to}%`;
+  }).join(', ');
+  wheelEl.style.background = `conic-gradient(${stops})`;
+  resultEl.textContent = '';
+}
+
+/* Compute rotation that lands a given index at pointer (top).
+   Pointer is at 0deg; conic-gradient starts slice 0 at 0deg by default. */
+function rotationForIndex(idx, extraTurns=5){
+  const n = entries.length;
+  const slice = 360/n;
+  const centerOfSlice = (idx * slice) + slice/2; // degrees from 0
+  // We want centerOfSlice to end up at 0deg under the pointer, so rotate opposite direction.
+  // Using negative for clockwise visual spin; add whole turns.
+  return -(extraTurns*360 + centerOfSlice);
 }
 
 /* ---------- Events ---------- */
-modeSelect.addEventListener("change", () => {
-  const isColor = modeSelect.value === "color";
-  colorGrid.style.display = isColor ? "grid" : "none";
-  colorActions.style.display = isColor ? "flex" : "none";
-  customRow.style.display = isColor ? "none" : "flex";
+colorGrid.addEventListener('click', (e)=>{
+  const chip = e.target.closest('.chip');
+  if (!chip) return;
+  const pressed = chip.getAttribute('aria-pressed') === 'true';
+  chip.setAttribute('aria-pressed', String(!pressed));
+  rebuildFromColors();
+});
 
+allBtn.addEventListener('click', ()=>{
+  colorGrid.querySelectorAll('.chip').forEach(ch=>ch.setAttribute('aria-pressed','true'));
+  rebuildFromColors();
+});
+noneBtn.addEventListener('click', ()=>{
+  colorGrid.querySelectorAll('.chip').forEach(ch=>ch.setAttribute('aria-pressed','false'));
+  rebuildFromColors();
+});
+
+modeSel.addEventListener('change', ()=>{
+  const isColor = modeSel.value === 'color';
+  colorGrid.style.display = isColor ? 'grid' : 'none';
+  colorActions.style.display = isColor ? 'flex' : 'none';
+  customRow.style.display = isColor ? 'none' : 'flex';
   if (isColor) {
-    refreshFromColorSelection();
+    rebuildFromColors();
   } else {
-    if (items.length === 0) setCustomItems(["Yes","No","Maybe"]);
-    drawWheel();
+    if (!entries.length) rebuildFromCustom(['Yes','No','Maybe']);
   }
 });
 
-function applyCustomFromInput(){
+setCustom.addEventListener('click', ()=>{
   const list = parseList(customInput.value);
-  if (list.length === 0) { resultEl.textContent = "Type at least one item."; return; }
-  setCustomItems(list);
-  resultEl.textContent = "";
-}
-
-setCustom.addEventListener("click", applyCustomFromInput);
-customInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") { e.preventDefault(); applyCustomFromInput(); }
+  if (!list.length){ resultEl.textContent = 'Type at least one item.'; return; }
+  rebuildFromCustom(list);
+});
+customInput.addEventListener('keydown', (e)=>{
+  if (e.key === 'Enter'){ e.preventDefault(); setCustom.click(); }
 });
 
-spinBtn.addEventListener("click", spinWheel);
-shuffleBtn.addEventListener("click", () => { angle = Math.random()*360; drawWheel(); });
+spinBtn.addEventListener('click', ()=>{
+  if (!entries.length){ resultEl.textContent = 'Add some items first 🙂'; return; }
+  resultEl.textContent = '';
+  // pick random winner index and spin to it
+  const idx = Math.floor(Math.random() * entries.length);
+  const turns = 4 + Math.floor(Math.random()*3); // 4-6 turns
+  const target = rotationForIndex(idx, turns);
+  currentRotation = target;
+  wheelEl.style.transform = `rotate(${target}deg)`;
 
-allBtn.addEventListener("click", () => {
-  colorGrid.querySelectorAll(".chip").forEach(chip => chip.setAttribute("aria-pressed","true"));
-  refreshFromColorSelection();
+  // announce result after animation ends
+  wheelEl.addEventListener('transitionend', function handler(){
+    wheelEl.removeEventListener('transitionend', handler);
+    resultEl.textContent = `🎉 Result: ${entries[idx].label}`;
+  }, { once:true });
 });
-noneBtn.addEventListener("click", () => {
-  colorGrid.querySelectorAll(".chip").forEach(chip => chip.setAttribute("aria-pressed","false"));
-  refreshFromColorSelection();
+
+shuffleBtn.addEventListener('click', ()=>{
+  const deg = Math.floor(Math.random()*360);
+  currentRotation = currentRotation + deg;
+  wheelEl.style.transition = 'transform .3s ease';
+  wheelEl.style.transform = `rotate(${currentRotation}deg)`;
+  setTimeout(()=>{ wheelEl.style.transition = 'transform 4s cubic-bezier(.15,.85,.25,1)'; }, 350);
 });
 
 /* ---------- Init ---------- */
 buildColorGrid();
-colorGrid.style.display = "grid";
-colorActions.style.display = "flex";
-refreshFromColorSelection();
-drawWheel();
+colorGrid.style.display = 'grid';
+colorActions.style.display = 'flex';
+rebuildFromColors();
 </script>
 </body>
 </html>
