@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Spin the Wheel</title>
+<style>
+  :root { --size: 420px; }
+  body { font-family: system-ui, Arial, sans-serif; margin: 0; background:#f7f7fb; color:#222; }
+  header { text-align:center; padding:18px 12px; font-weight:700; font-size:22px; }
+  .wrap { max-width: 920px; margin: 0 auto; padding: 0 16px 30px; }
+  .bar { display:flex; gap:10px; flex-wrap: wrap; align-items: center; justify-content:center; }
+  select, input, button { font-size:16px; padding:10px 12px; border-radius:10px; border:1px solid #ddd; background:white; }
+  button.primary { background:#111; color:white; border:0; }
+  button.ghost { background:#fff; border:1px solid #ccc; }
+  #customRow { display:none; gap:8px; justify-content:center; }
+  #customInput { width: min(680px, 90vw); }
+  .grid { display:none; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap:10px; margin-top:14px; }
+  .chip {
+    display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:12px; border:1px solid #ddd; background:white; cursor:pointer; user-select:none;
+  }
+  .dot { width:18px; height:18px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
+  .chip input { pointer-events:none; }
+  .chip.selected { border-color:#111; box-shadow:0 1px 0 rgba(0,0,0,.03), 0 0 0 2px #111 inset; color:#111; font-weight:600; }
+  .row-actions { display:none; margin-top:6px; gap:8px; }
+  .stack { display:flex; flex-direction:column; align-items:stretch; gap:8px; }
+  .stage { display:flex; flex-direction:column; align-items:center; gap:10px; margin-top:16px; }
+  canvas { width: var(--size); height: var(--size); max-width: 92vw; max-height: 92vw; }
+  /* pointer */
+  .pointer {
+    width:0; height:0; border-left:12px solid transparent; border-right:12px solid transparent;
+    border-bottom:22px solid #111; margin-top:6px;
+  }
+  .result { min-height:28px; font-weight:700; }
+</style>
+</head>
+<body>
+  <header>🎡 Spin the Wheel</header>
+  <div class="wrap">
+    <div class="bar">
+      <label for="mode">Mode:</label>
+      <select id="mode">
+        <option value="color">Colors</option>
+        <option value="custom">Custom</option>
+      </select>
+
+      <button id="spinBtn" class="primary">Spin</button>
+      <button id="shuffleBtn" class="ghost" title="Randomize starting angle">Shuffle</button>
+    </div>
+
+    <!-- Custom input -->
+    <div id="customRow" class="bar">
+      <input id="customInput" placeholder="Enter items separated by commas (e.g., Pizza, Sushi, Burger)" />
+      <button id="setCustom" class="ghost">Set Custom</button>
+    </div>
+
+    <!-- Color selector -->
+    <div class="stack">
+      <div class="row-actions bar" id="colorActions">
+        <button id="allBtn" class="ghost">Select All</button>
+        <button id="noneBtn" class="ghost">Clear</button>
+        <span style="opacity:.65">Toggle colors below:</span>
+      </div>
+      <div id="colorGrid" class="grid"></div>
+    </div>
+
+    <div class="stage">
+      <div class="pointer" aria-hidden="true"></div>
+      <canvas id="wheel" width="500" height="500"></canvas>
+      <div class="result" id="result"></div>
+    </div>
+  </div>
+
+<script>
+/* ---------- Data ---------- */
+const ALL_COLORS = [
+  "red","crimson","orangered","orange","gold","yellow","greenyellow","lime","springgreen","mediumseagreen",
+  "green","teal","turquoise","cyan","deepskyblue","dodgerblue","cornflowerblue","royalblue","blue",
+  "indigo","rebeccapurple","slateblue","blueviolet","violet","magenta","deeppink","hotpink","pink",
+  "salmon","tomato","sienna","chocolate","peru","sandybrown","tan","olive","darkolivegreen","slategray"
+];
+
+/* ---------- DOM ---------- */
+const canvas = document.getElementById("wheel");
+const ctx = canvas.getContext("2d");
+const spinBtn = document.getElementById("spinBtn");
+const shuffleBtn = document.getElementById("shuffleBtn");
+const modeSelect = document.getElementById("mode");
+const resultEl = document.getElementById("result");
+
+const customRow = document.getElementById("customRow");
+const customInput = document.getElementById("customInput");
+const setCustom = document.getElementById("setCustom");
+
+const colorGrid = document.getElementById("colorGrid");
+const colorActions = document.getElementById("colorActions");
+const allBtn = document.getElementById("allBtn");
+const noneBtn = document.getElementById("noneBtn");
+
+/* ---------- State ---------- */
+let items = [];  // array of { label, color }
+let angle = 0;
+let spinning = false;
+
+/* ---------- Utils ---------- */
+function contrastText(cssColor) {
+  // Create a temp canvas to parse computed color
+  const d = document.createElement('div');
+  d.style.color = cssColor;
+  document.body.appendChild(d);
+  const rgb = getComputedStyle(d).color.match(/\d+/g).map(Number);
+  d.remove();
+  const [r,g,b] = rgb;
+  // Relative luminance
+  const srgb = [r,g,b].map(v => {
+    v/=255;
+    return v<=0.03928 ? v/12.92 : Math.pow((v+0.055)/1.055, 2.4);
+  });
+  const L = 0.2126*srgb[0] + 0.7152*srgb[1] + 0.0722*srgb[2];
+  return L > 0.55 ? "#111" : "#fff";
+}
+
+function easeOut(t){ return 1 - Math.pow(1 - t, 3); }
+
+function drawWheel() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  const cx = canvas.width/2, cy = canvas.height/2, r = Math.min(cx, cy) - 20;
+  const n = Math.max(1, items.length);
+  const arc = (2*Math.PI)/n;
+
+  // rotate whole wheel by current angle
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate((angle*Math.PI)/180);
+  ctx.translate(-cx, -cy);
+
+  for (let i=0;i<n;i++){
+    const start = i*arc;
+    const item = items[i] || {label: "—", color: "#ddd"};
+    // slice
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.arc(cx, cy, r, start, start+arc);
+    ctx.closePath();
+    ctx.fillStyle = item.color;
+    ctx.fill();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "rgba(0,0,0,.12)";
+    ctx.stroke();
+
+    // label
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(start + arc/2);
+    ctx.textAlign = "right";
+    ctx.font = "16px system-ui, Arial";
+    ctx.fillStyle = contrastText(item.color);
+    ctx.fillText(item.label, r-12, 6);
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+function selectedIndexFromAngle() {
+  const n = items.length;
+  if (!n) return -1;
+  const seg = 360/n;
+  const a = ((angle % 360) + 360) % 360; // 0..359
+  // Pointer at top (0°). Wheel rotated by 'angle' clockwise.
+  // The slice whose center aligns with 0° is index = round((360 - a) / seg) mod n, but floor works if we flip.
+  const idx = Math.floor(((360 - a) / seg)) % n;
+  return (idx + n) % n;
+}
+
+/* ---------- Colors UI ---------- */
+function buildColorGrid() {
+  colorGrid.innerHTML = "";
+  ALL_COLORS.forEach(col => {
+    const chip = document.createElement("label");
+    chip.className = "chip selected";
+    chip.dataset.color = col;
+
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    dot.style.background = col;
+
+    const text = document.createElement("span");
+    text.textContent = col;
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+    cb.checked = true;
+    cb.ariaLabel = col;
+
+    chip.append(dot, text, cb);
+    chip.addEventListener("click", (e) => {
+      // avoid double toggling when clicking the checkbox
+      if (e.target.tagName === "INPUT") return;
+      cb.checked = !cb.checked;
+      chip.classList.toggle("selected", cb.checked);
+      refreshFromColorSelection();
+    });
+    cb.addEventListener("change", () => {
+      chip.classList.toggle("selected", cb.checked);
+      refreshFromColorSelection();
+    });
+
+    colorGrid.appendChild(chip);
+  });
+}
+
+function refreshFromColorSelection() {
+  const chosen = [...colorGrid.querySelectorAll("input:checked")].map(cb => cb.parentElement.dataset.color);
+  items = chosen.map(c => ({ label: c, color: c }));
+  if (items.length === 0) {
+    resultEl.textContent = "Select at least one color.";
+  } else {
+    resultEl.textContent = "";
+  }
+  drawWheel();
+}
+
+/* ---------- Custom Mode ---------- */
+function setCustomItems(list) {
+  // Assign distinct hues for readability
+  items = list.map((label, i) => {
+    const h = Math.round((360/list.length) * i);
+    return { label, color: `hsl(${h} 70% 55%)` };
+  });
+  drawWheel();
+}
+
+/* ---------- Spin ---------- */
+function spinWheel() {
+  if (spinning) return;
+  if (items.length === 0) {
+    resultEl.textContent = "Add some items first 🙂";
+    return;
+  }
+  spinning = true;
+  resultEl.textContent = "";
+
+  const spinTime = 3000 + Math.random()*3000;      // 3–6 s
+  const spinAngle = 1080 + Math.random()*360;      // 3+ turns
+  const startAngle = angle;
+  const t0 = performance.now();
+
+  function step(t){
+    const elapsed = t - t0;
+    if (elapsed < spinTime) {
+      const p = easeOut(elapsed / spinTime);
+      angle = startAngle + spinAngle * p;
+      drawWheel();
+      requestAnimationFrame(step);
+    } else {
+      spinning = false;
+      angle = startAngle + spinAngle;
+      drawWheel();
+      const idx = selectedIndexFromAngle();
+      if (idx >= 0) resultEl.textContent = `🎉 Result: ${items[idx].label}`;
+    }
+  }
+  requestAnimationFrame(step);
+}
+
+/* ---------- Events ---------- */
+modeSelect.addEventListener("change", () => {
+  const isColor = modeSelect.value === "color";
+  colorGrid.style.display = isColor ? "grid" : "none";
+  colorActions.style.display = isColor ? "flex" : "none";
+  customRow.style.display = isColor ? "none" : "flex";
+
+  if (isColor) {
+    refreshFromColorSelection();
+  } else {
+    resultEl.textContent = "";
+    // show helper text if empty
+    if (items.length === 0) {
+      setCustomItems(["Yes","No","Maybe"]);
+    } else {
+      drawWheel();
+    }
+  }
+});
+
+setCustom.addEventListener("click", () => {
+  const list = customInput.value.split(",").map(s => s.trim()).filter(Boolean);
+  if (!list.length) {
+    resultEl.textContent = "Type at least one item, separated by commas.";
+    return;
+  }
+  setCustomItems(list);
+  resultEl.textContent = "";
+});
+
+spinBtn.addEventListener("click", spinWheel);
+shuffleBtn.addEventListener("click", () => {
+  angle = Math.random()*360;
+  drawWheel();
+});
+
+allBtn.addEventListener("click", () => {
+  colorGrid.querySelectorAll("input").forEach(cb => { cb.checked = true; cb.parentElement.classList.add("selected"); });
+  refreshFromColorSelection();
+});
+noneBtn.addEventListener("click", () => {
+  colorGrid.querySelectorAll("input").forEach(cb => { cb.checked = false; cb.parentElement.classList.remove("selected"); });
+  refreshFromColorSelection();
+});
+
+/* ---------- Init ---------- */
+buildColorGrid();
+colorGrid.style.display = "grid";
+colorActions.style.display = "flex";
+refreshFromColorSelection();
+drawWheel();
+</script>
+</body>
+</html>
